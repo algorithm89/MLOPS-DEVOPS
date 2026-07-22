@@ -1,0 +1,23 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local secrets and machine-specific values
+terraform.tfvars
+*.auto.tfvars
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# IDE
+.idea/

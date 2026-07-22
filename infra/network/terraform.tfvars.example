@@ -1,0 +1,35 @@
+# Copy this file to terraform.tfvars before running terraform plan/apply.
+# terraform.tfvars is ignored by Git because it contains local machine values.
+#
+# Do not put Azure passwords, client secrets, or portal credentials here.
+# For local work, authenticate with:
+#   az login
+#
+# If you later run Terraform from automation, use environment variables or
+# GitHub Actions secrets instead of uncommenting secrets in this file:
+#
+#   $env:ARM_CLIENT_ID       = "00000000-0000-0000-0000-000000000000"
+#   $env:ARM_CLIENT_SECRET   = "your-service-principal-client-secret"
+#   $env:ARM_SUBSCRIPTION_ID = "00000000-0000-0000-0000-000000000000"
+#   $env:ARM_TENANT_ID       = "00000000-0000-0000-0000-000000000000"
+#
+# The matching GitHub repository secrets would be:
+#
+#   ARM_CLIENT_ID
+#   ARM_CLIENT_SECRET
+#   ARM_SUBSCRIPTION_ID
+#   ARM_TENANT_ID
+
+# Azure subscription where the lab resources will be created.
+subscription_id       = "00000000-0000-0000-0000-000000000000"
+
+# Azure region for the lab.
+location              = "eastus"
+
+# Naming values used by locals.tf.
+project_name          = "terraform-lab"
+environment           = "dev"
+
+# Your public IP in CIDR format. Use /32 for one IP address.
+# Example: if your public IP is 203.0.113.10, use 203.0.113.10/32.
+allowed_ssh_source_ip = "203.0.113.10/32"
