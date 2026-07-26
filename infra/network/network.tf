@@ -94,6 +94,24 @@ resource "azurerm_network_security_group" "app" {
     source_address_prefixes    = var.mgmt_subnet_prefixes
     destination_address_prefix = "*"
   }
+
+  # Opens the frontend to the internet so the app VM can be browsed directly.
+  # Set expose_app_publicly = false to return to jumpbox-only access.
+  dynamic "security_rule" {
+    for_each = var.expose_app_publicly ? [1] : []
+
+    content {
+      name                       = "Allow-Frontend-From-Internet"
+      priority                   = 130
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_range     = "8080"
+      source_address_prefix      = "Internet"
+      destination_address_prefix = "*"
+    }
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "mgmt" {

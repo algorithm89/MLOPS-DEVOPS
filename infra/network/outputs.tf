@@ -3,6 +3,11 @@ output "resource_group_name" {
   value       = azurerm_resource_group.this.name
 }
 
+output "location" {
+  description = "Azure region the lab is deployed to."
+  value       = azurerm_resource_group.this.location
+}
+
 output "mgmt_vnet_id" {
   description = "ID of the management virtual network."
   value       = azurerm_virtual_network.mgmt.id
