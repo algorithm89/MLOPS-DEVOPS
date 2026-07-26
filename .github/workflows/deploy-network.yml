@@ -34,7 +34,7 @@ env:
 
 jobs:
   terraform:
-    runs-on: self-hosted
+    runs-on: [self-hosted, skynet]
     defaults:
       run:
         working-directory: infra/network
