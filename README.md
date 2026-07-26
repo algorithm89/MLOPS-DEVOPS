@@ -44,8 +44,8 @@ The planned lab has two Azure virtual networks:
 |   |   |   | Private IP:          |   |   |     ping / ssh /      |   |   | Private IP:          |   |   |
 |   |   |   | 10.10.1.10           |   |   |     curl test         |   |   | 10.20.1.10           |   |   |
 |   |   |   |                      |   |   | --------------------> |   |   |                      |   |   |
-|   |   |   | Public IP: Yes       |   |   |                       |   |   | Public IP: No        |   |   |
-|   |   |   | SSH entry point      |   |   |                       |   |   | Private only         |   |   |
+|   |   |   | Public IP: Yes       |   |   |                       |   |   | Public IP: Yes       |   |   |
+|   |   |   | SSH entry point      |   |   |                       |   |   | Web testing only     |   |   |
 |   |   |   +----------------------+   |   |                       |   |   +----------------------+   |   |
 |   |   |                              |   |                       |   |                              |   |
 |   |   |   +----------------------+   |   |                       |   |   +----------------------+   |   |
@@ -62,6 +62,8 @@ The planned lab has two Azure virtual networks:
 |   |                                      |                       |   |   | Allow from VNet 1:   |   |   |
 |   |                                      |                       |   |   | - SSH 22             |   |   |
 |   |                                      |                       |   |   | - ICMP ping          |   |   |
+|   |                                      |                       |   |   | - HTTP 8080          |   |   |
+|   |                                      |                       |   |   | Allow from internet: |   |   |
 |   |                                      |                       |   |   | - HTTP 8080          |   |   |
 |   |                                      |                       |   |   +----------------------+   |   |
 |   |                                      |                       |   +------------------------------+   |
@@ -98,11 +100,21 @@ Optional frontend workflow:
 |       |-- README.md
 |       `-- index.html
 |-- infra/
-|   `-- network/
+|   |-- network/
+|   |   |-- providers.tf
+|   |   |-- variables.tf
+|   |   |-- locals.tf
+|   |   |-- network.tf
+|   |   |-- outputs.tf
+|   |   |-- terraform.tfvars.example
+|   |   `-- README.md
+|   `-- compute/
 |       |-- providers.tf
 |       |-- variables.tf
 |       |-- locals.tf
-|       |-- network.tf
+|       |-- data.tf
+|       |-- compute.tf
+|       |-- cloud-init-app.yaml
 |       |-- outputs.tf
 |       |-- terraform.tfvars.example
 |       `-- README.md
@@ -110,20 +122,24 @@ Optional frontend workflow:
 `-- README.md
 ```
 
-## Planned Resources
+## Resources
 
 | Resource | Purpose |
 | --- | --- |
 | Resource group | Container for all lab resources |
 | Management VNet | Public entry network for the jumpbox |
-| App VNet | Private network for the application server |
+| App VNet | Network for the application server |
 | VNet peering | Allows private traffic between the two VNets |
 | Jumpbox VM | SSH entry point from your local machine |
-| App VM | Private VM that runs the Docker frontend |
+| App VM | Runs the Docker frontend, published on port 8080 |
+| Public IPs | One on the jumpbox for SSH, one on the app VM for web testing |
 | Management NSG | Allows SSH only from a trusted public IP |
-| App NSG | Allows SSH, ICMP, and app traffic from the management network |
+| App NSG | Allows SSH and ICMP from the management network, HTTP 8080 from the internet |
 
-## Terraform Files
+## Terraform Stacks
+
+The lab is split into two stacks. Apply `network` first — `compute` reads its
+state file for the resource group, region, and subnet IDs.
 
 | File | Purpose |
 | --- | --- |
@@ -133,6 +149,10 @@ Optional frontend workflow:
 | `infra/network/network.tf` | Resource group, VNets, subnets, NSGs, and VNet peering |
 | `infra/network/outputs.tf` | Useful IDs returned after apply |
 | `infra/network/terraform.tfvars.example` | Example local variable values |
+| `infra/compute/data.tf` | Reads the network stack's outputs from its state file |
+| `infra/compute/compute.tf` | Public IPs, NICs, and the two Linux VMs |
+| `infra/compute/cloud-init-app.yaml` | Installs Docker and starts the frontend container |
+| `infra/compute/outputs.tf` | App URL, VM IPs, and ready-to-paste SSH commands |
 
 ## Frontend App
 
@@ -208,39 +228,43 @@ allowed_ssh_source_ip = "<your-public-ip>/32"
 
 ## Terraform Workflow
 
-Initialize Terraform:
+Build the network first:
 
 ```powershell
 cd infra/network
 terraform init
-```
-
-Format and validate the code:
-
-```powershell
 terraform fmt
 terraform validate
-```
-
-Preview the infrastructure changes:
-
-```powershell
 terraform plan
-```
-
-Create the lab:
-
-```powershell
 terraform apply
 ```
 
-Destroy the lab when you are done testing to control cost:
+Then the VMs:
 
 ```powershell
+cd ../compute
+Copy-Item terraform.tfvars.example terraform.tfvars
+terraform init
+terraform apply
+```
+
+Destroy in reverse order when you are done testing, to control cost:
+
+```powershell
+cd infra/compute
+terraform destroy
+cd ../network
 terraform destroy
 ```
 
 ## Testing Flow
+
+Open the frontend in a browser using the app VM's public IP:
+
+```powershell
+cd infra/compute
+terraform output app_url
+```
 
 SSH from your local machine to the jumpbox public IP:
 
@@ -259,12 +283,27 @@ curl http://10.20.1.10:8080
 ## Expected Result
 
 - VM1 is reachable from the internet by SSH only from your trusted public IP.
-- VM2 has no public IP.
+- VM2 serves the frontend publicly on port `8080`.
+- VM2 accepts SSH only from the management subnet, so admin access goes through VM1.
 - VM1 can reach VM2 through VNet peering.
 - VM1 can ping VM2.
 - VM1 can SSH to VM2.
 - VM1 can curl the Docker frontend on VM2 port `8080`.
 
+## Public Exposure Note
+
+VM2 carries a public IP so the site can be browsed directly while testing. This
+is a deliberate lab convenience, not the hardened pattern — it trades away the
+"app tier is unreachable from the internet" property the two-VNet layout is
+built to demonstrate. To go back to the private design, set
+`expose_app_publicly = false` in the network stack and
+`app_public_ip_enabled = false` in the compute stack, then reach the site
+through an SSH tunnel:
+
+```powershell
+ssh -L 8080:10.20.1.10:8080 azureuser@<vm1-public-ip>
+```
+
 ## Status
 
-Initial network Terraform files are in place and validate successfully.
+Network and compute Terraform stacks are in place and validate successfully.

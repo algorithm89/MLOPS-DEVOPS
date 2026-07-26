@@ -52,6 +52,12 @@ variable "app_subnet_prefixes" {
   default     = ["10.20.1.0/24"]
 }
 
+variable "expose_app_publicly" {
+  description = "Allow inbound TCP 8080 to the app subnet from the internet. Required for browsing the frontend without the jumpbox."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags applied to Azure resources."
   type        = map(string)
