@@ -34,7 +34,7 @@ env:
 
 jobs:
   terraform:
-    runs-on: self-hosted
+    runs-on: [self-hosted, skynet]
     defaults:
       run:
         working-directory: infra/network
@@ -42,6 +42,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The self-hosted runner has no Terraform on PATH, so install a pinned
+      # version rather than relying on whatever the box happens to have.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          # Without this the action wraps terraform in a script that mangles
+          # stdout, which makes plan output hard to read in the run log.
+          terraform_wrapper: false
 
       - name: Terraform version
         run: terraform version
