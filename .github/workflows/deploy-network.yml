@@ -23,9 +23,16 @@ permissions:
   contents: read
 
 env:
-  # Provider auth uses the self-hosted runner's own Azure CLI login (az login),
-  # so no service-principal secrets are needed. Just the target subscription.
+  # Provider auth uses the runner VM's managed identity, so there are no
+  # credentials to store and nothing to install (the Azure CLI is not on this
+  # runner). Requires the runner to be an Azure VM with an identity assigned
+  # and RBAC on the target subscription.
+  ARM_USE_MSI: "true"
   ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+  # Only needed for a *user-assigned* identity — leave the secret unset when
+  # using the VM's system-assigned identity.
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
   # Storage account key so the backend can read/write the state blob.
   ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }}
   # tfvars is git-ignored, so pass machine-specific values as TF_VAR_* env.
@@ -83,8 +90,27 @@ jobs:
       - name: Terraform version
         run: terraform version
 
-      - name: Verify Azure CLI login
-        run: az account show --query "{subscription:name, id:id, user:user.name}" -o json
+      # No `az` on this runner, so probe the instance metadata service directly.
+      # This is the endpoint the provider uses to mint a token via MSI; if it
+      # does not answer, the runner is not an Azure VM and MSI cannot work.
+      - name: Verify managed identity is reachable
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          imds="http://169.254.169.254/metadata/identity/oauth2/token"
+          url="$imds?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F"
+          if [ -n "${ARM_CLIENT_ID:-}" ]; then
+            url="$url&client_id=$ARM_CLIENT_ID"
+          fi
+          if curl -fsS --max-time 5 -H "Metadata: true" "$url" >/dev/null; then
+            echo "IMDS returned a management token — managed identity is usable."
+          else
+            echo "Could not get a token from the Azure instance metadata service." >&2
+            echo "ARM_USE_MSI only works when this runner is an Azure VM with an" >&2
+            echo "identity assigned. Switch to service-principal auth otherwise." >&2
+            exit 1
+          fi
 
       - name: Terraform init
         run: terraform init -input=false
