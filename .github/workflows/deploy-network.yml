@@ -43,46 +43,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # setup-terraform downloads a .zip and shells out to `unzip`, which is
-      # missing on the bare runner image.
-      - name: Ensure unzip is available
+      # The runner has no Terraform, no unzip, and no passwordless sudo to
+      # install one — which rules out hashicorp/setup-terraform, since it
+      # shells out to `unzip`. Fetch the release ourselves and unpack it with
+      # python3's zipfile module, so nothing has to be installed on the box.
+      # Cached under $HOME so repeat runs skip the download.
+      - name: Install Terraform
         shell: bash
         working-directory: ${{ github.workspace }}
         env:
-          DEBIAN_FRONTEND: noninteractive
+          TERRAFORM_VERSION: "1.9.8"
         run: |
-          if command -v unzip >/dev/null 2>&1; then
-            echo "unzip already installed"; exit 0
-          fi
-          # -n so a runner without passwordless sudo fails fast instead of
-          # blocking on a password prompt nobody can answer.
-          if [ "$(id -u)" -eq 0 ]; then SUDO=
-          elif sudo -n true 2>/dev/null; then SUDO="sudo -n"
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)        arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          dest="$HOME/.cache/terraform/$TERRAFORM_VERSION/$arch"
+          if [ ! -x "$dest/terraform" ]; then
+            command -v python3 >/dev/null 2>&1 || {
+              echo "python3 is required to unpack the Terraform release." >&2; exit 1; }
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            base="https://releases.hashicorp.com/terraform/$TERRAFORM_VERSION"
+            zip="terraform_${TERRAFORM_VERSION}_linux_${arch}.zip"
+            curl -fsSL -o "$tmp/$zip" "$base/$zip"
+            curl -fsSL -o "$tmp/SHA256SUMS" "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS"
+            ( cd "$tmp" && grep -E "[[:space:]]${zip}\$" SHA256SUMS | sha256sum -c - )
+            mkdir -p "$dest"
+            python3 -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extract('terraform', sys.argv[2])" \
+              "$tmp/$zip" "$dest"
+            chmod +x "$dest/terraform"
           else
-            echo "unzip is missing and this runner has no passwordless sudo." >&2
-            echo "Install it once on the runner: sudo apt-get install -y unzip" >&2
-            exit 1
+            echo "Using cached Terraform at $dest"
           fi
-          if command -v apt-get >/dev/null 2>&1; then
-            $SUDO apt-get update -qq && $SUDO apt-get install -y -qq unzip
-          elif command -v dnf >/dev/null 2>&1; then
-            $SUDO dnf install -y unzip
-          elif command -v apk >/dev/null 2>&1; then
-            $SUDO apk add --no-cache unzip
-          else
-            echo "No supported package manager found; install unzip on the runner." >&2
-            exit 1
-          fi
-
-      # The self-hosted runner has no Terraform on PATH, so install a pinned
-      # version rather than relying on whatever the box happens to have.
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.8"
-          # Without this the action wraps terraform in a script that mangles
-          # stdout, which makes plan output hard to read in the run log.
-          terraform_wrapper: false
+          echo "$dest" >> "$GITHUB_PATH"
 
       - name: Terraform version
         run: terraform version
